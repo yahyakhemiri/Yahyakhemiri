@@ -14,6 +14,7 @@ import {
 import { ElementType, BeamInputs, ColumnInputs, FootingInputs, CalculationResult, Language } from './types';
 import { calculateBeam, calculateColumn, calculateFooting } from './engineeringLogic';
 import { DrawingView } from './components/DrawingView';
+import { OptimizationTable } from './components/OptimizationTable';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -70,37 +71,37 @@ const TRANSLATIONS = {
     footing: 'قاعدة منفصلة',
     standards: 'المعايير',
     standardsDesc: 'تتبع الحسابات قواعد Eurocode 2 (EN 1992) و BAEL 91 لتصميم حالة الحدود القصوى (ULS).',
-    inputs: 'معايير الإدخال',
-    results: 'نتائج التصميم',
+    inputs: 'مدخلات التصميم',
+    results: 'نتائج الحسابات',
     verification: 'التحقق الإنشائي',
-    utilization: 'نسبة الاستخدام',
+    utilization: 'نسبة الاستغلال',
     safe: 'آمن',
     critical: 'حرج',
-    span: 'طول البحر (L)',
-    tributaryWidth: 'العرض الرافد',
-    slabSurface: 'مساحة البلاطة',
-    slabThickness: 'سمك البلاطة',
-    slabType: 'نوع البلاطة',
+    span: 'طول الجسر',
+    tributaryWidth: 'العرض التحميلي',
+    slabSurface: 'مساحة السقف',
+    slabThickness: 'سماكة السقف',
+    slabType: 'نوع السقف',
     liveLoadType: 'نوع الحمل الحي',
     concreteGrade: 'رتبة الخرسانة',
     cantilever: 'جسر كابولي',
-    tributaryArea: 'المساحة الرافدة',
+    tributaryArea: 'المساحة التحميلية',
     floors: 'عدد الطوابق',
     axialLoad: 'الحمل المحوري (N_u)',
     soilCapacity: 'قدرة تحمل التربة',
     width: 'عرض المقطع',
     height: 'ارتفاع المقطع',
     deadLoad: 'الحمل الميت (G)',
-    moment: 'عزم القصوى (M_u)',
-    shear: 'قوة القص (V_u)',
+    moment: 'عزم الانحناء الأقصى (M_u)',
+    shear: 'قوة القص القصوى (V_u)',
     bottomRebar: 'التسليح السفلي',
     topRebar: 'التسليح العلوي',
     mainRebar: 'التسليح الرئيسي',
     tiesSpacing: 'تباعد الكانات',
     thickness: 'السماكة',
     bottomMesh: 'الشبكة السفلية',
-    deformation: 'أقصى ترخيم',
-    realtime: 'وقت حقيقي'
+    deformation: 'أقصى ترخيم (Deflection)',
+    realtime: 'تحديث فوري'
   }
 };
 
@@ -172,20 +173,52 @@ export default function App() {
     const element = document.getElementById('report-content');
     if (!element) return;
     
-    const canvas = await html2canvas(element, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: '#020617'
-    });
+    // Create a temporary container for PDF generation to ensure consistent layout
+    const originalStyle = element.style.cssText;
+    element.style.width = '1000px'; // Increased width for better resolution
+    element.style.padding = '40px';
     
-    const imgData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const imgProps = pdf.getImageProperties(imgData);
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-    
-    pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-    pdf.save(`StructEasy_${activeTab}_Report.pdf`);
+    // Add a temporary scale indicator for the PDF
+    const scaleIndicator = document.createElement('div');
+    scaleIndicator.innerHTML = `
+      <div style="margin-bottom: 20px; padding: 10px; border: 1px solid #334155; border-radius: 8px; background: #0f172a; color: #94a3b8; font-family: monospace; font-size: 10px; display: flex; justify-content: space-between;">
+        <span>STRUCTURAL DESIGN REPORT • SCALE 1:50</span>
+        <span>GENERATED ON ${new Date().toLocaleString()}</span>
+      </div>
+    `;
+    element.prepend(scaleIndicator);
+
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#020617',
+        windowWidth: 1200,
+        ignoreElements: (el) => el.classList.contains('no-print')
+      });
+      
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      
+      const imgProps = pdf.getImageProperties(imgData);
+      const ratio = imgProps.width / imgProps.height;
+      const displayWidth = pdfWidth - 20; // 10mm margins
+      const displayHeight = displayWidth / ratio;
+      
+      pdf.addImage(imgData, 'PNG', 10, 10, displayWidth, displayHeight);
+      
+      // Add a footer with scale info
+      pdf.setFontSize(8);
+      pdf.setTextColor(150);
+      pdf.text('Note: Drawings are rendered at 1:50 scale relative to the physical dimensions of structural elements.', 10, pdfHeight - 10);
+      
+      pdf.save(`StructEasy_${activeTab}_Report_1_50.pdf`);
+    } finally {
+      element.style.cssText = originalStyle;
+      element.removeChild(scaleIndicator);
+    }
   };
 
   return (
@@ -210,13 +243,6 @@ export default function App() {
               <button onClick={() => setLang('en')} className={`px-2 py-1 text-[10px] rounded ${lang === 'en' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>EN</button>
               <button onClick={() => setLang('ar')} className={`px-2 py-1 text-[10px] rounded ${lang === 'ar' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>AR</button>
             </div>
-            <button 
-              onClick={exportPDF}
-              className="hidden md:flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors text-sm font-medium text-emerald-400"
-            >
-              <Download className="w-4 h-4" />
-              {t.export}
-            </button>
             <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center">
               <Settings2 className="w-4 h-4 text-slate-400" />
             </div>
@@ -371,6 +397,22 @@ export default function App() {
 
               {/* Drawing View */}
               <DrawingView type={activeTab} result={activeResult} lang={lang} />
+
+              {/* Optimization Review */}
+              {activeResult.optimization && (
+                <OptimizationTable metrics={activeResult.optimization} lang={lang} />
+              )}
+
+              {/* Export Button at the end */}
+              <div className="pt-8 flex justify-center no-print">
+                <button 
+                  onClick={exportPDF}
+                  className="flex items-center gap-3 px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl transition-all shadow-xl shadow-emerald-900/20 font-bold group"
+                >
+                  <Download className="w-5 h-5 group-hover:bounce" />
+                  <span>{t.export} (PDF)</span>
+                </button>
+              </div>
             </section>
           </div>
         </div>

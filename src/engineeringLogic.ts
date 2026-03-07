@@ -20,32 +20,58 @@ const CONCRETE_GRADES: Record<string, number> = {
   'C35/45': 35,
 };
 
-const REBAR_DIAMETERS = [8, 10, 12, 14, 16, 20, 25, 32];
+const REBAR_DIAMETERS = [8, 10, 12, 14, 16, 20];
+const COVER = 30; // mm
 
 function getRebarArea(diameter: number): number {
   return (Math.PI * Math.pow(diameter / 10, 2)) / 4; // cm2
 }
 
-function selectRebars(requiredArea: number): RebarConfig {
-  // Try to find a combination with count <= 4 first
+function calculateConstructability(width: number, count: number, diameter: number, stirrupDiameter: number = 8): { score: number; spacing: number; clearSpacing: number } {
+  if (count <= 1) return { score: 10, spacing: width, clearSpacing: width };
+  
+  const totalCover = 2 * (COVER + stirrupDiameter);
+  const availableWidth = width - totalCover;
+  const spacing = availableWidth / (count - 1);
+  const clearSpacing = spacing - diameter;
+  
+  let score = 10;
+  if (clearSpacing < 25) score -= 5;
+  if (clearSpacing < 20) score -= 3;
+  if (count > 6) score -= 2;
+  if (diameter > 20) score -= 1;
+  
+  return { score: Math.max(1, score), spacing, clearSpacing };
+}
+
+function selectRebarsOptimized(requiredArea: number, width: number, type: 'BEAM' | 'COLUMN' | 'FOOTING'): RebarConfig & { constructability: any } {
+  let bestOption: any = null;
+  
+  // For columns, we prefer even numbers for symmetry
+  const counts = type === 'COLUMN' ? [4, 6, 8, 10, 12] : [2, 3, 4, 5, 6, 7, 8, 10, 12];
+  
   for (const d of REBAR_DIAMETERS.filter(d => d >= 12)) {
-    for (const count of [2, 3, 4]) {
+    for (const count of counts) {
       const area = getRebarArea(d) * count;
       if (area >= requiredArea) {
-        return { diameter: d, count, area };
+        const constructability = calculateConstructability(width, count, d);
+        if (constructability.clearSpacing >= 20) {
+          if (!bestOption || constructability.score > bestOption.constructability.score) {
+            bestOption = { diameter: d, count, area, constructability };
+          }
+        }
       }
     }
   }
-  // If not possible with <= 4, allow up to 6
-  for (const d of REBAR_DIAMETERS.filter(d => d >= 12)) {
-    for (const count of [5, 6]) {
-      const area = getRebarArea(d) * count;
-      if (area >= requiredArea) {
-        return { diameter: d, count, area };
-      }
-    }
+  
+  if (!bestOption) {
+    // Fallback to whatever works
+    const d = 20;
+    const count = Math.ceil(requiredArea / getRebarArea(d));
+    return { diameter: d, count, area: getRebarArea(d) * count, constructability: calculateConstructability(width, count, d) };
   }
-  return { diameter: 32, count: 6, area: getRebarArea(32) * 6 };
+  
+  return bestOption;
 }
 
 const SLAB_DENSITIES: Record<string, number> = {
@@ -107,20 +133,42 @@ export function calculateBeam(inputs: BeamInputs): CalculationResult {
   const A_s_req = (M_u * 1e6) / (z * F_YD); // mm2
   const A_s_cm2 = A_s_req / 100;
   
-  let bottomBars: RebarConfig;
-  let topBars: RebarConfig;
+  // EC2 Min/Max
+  const f_ctm = 0.3 * Math.pow(f_ck, 2/3);
+  const asMin = Math.max(0.26 * (f_ctm / F_YK) * b * d_eff, 0.0013 * b * d_eff) / 100;
+  const asMax = (0.04 * b * h) / 100;
+
+  let bottomBars: any;
+  let topBars: any;
   
   if (isCantilever) {
-    // For cantilever, main reinforcement is at the top (tension zone)
-    topBars = selectRebars(A_s_cm2);
-    // Bottom bars are nominal/compression, but EC2 requires min reinforcement
-    bottomBars = selectRebars(Math.max(A_s_cm2 * 0.25, 0.0013 * b * d_eff / 100)); 
+    topBars = selectRebarsOptimized(Math.max(A_s_cm2, asMin), b, 'BEAM');
+    bottomBars = selectRebarsOptimized(asMin, b, 'BEAM');
   } else {
-    // For simple beam, main reinforcement is at the bottom
-    bottomBars = selectRebars(A_s_cm2);
-    topBars = selectRebars(Math.max(A_s_cm2 * 0.2, 0.0013 * b * d_eff / 100));
+    bottomBars = selectRebarsOptimized(Math.max(A_s_cm2, asMin), b, 'BEAM');
+    topBars = selectRebarsOptimized(asMin, b, 'BEAM');
   }
   
+  const mainBars = isCantilever ? topBars : bottomBars;
+  let recommendation = mainBars.constructability.score > 7 ? "Optimal selection for constructability." : "Consider larger bars to reduce congestion.";
+  
+  if (isCantilever) {
+    recommendation += " Top reinforcement prioritized for tension zone. Ensure 1.5x span development length into back-span.";
+  } else {
+    recommendation += " Bottom reinforcement optimized for mid-span. Top bars provide support continuity.";
+  }
+
+  const optimization = {
+    asMin,
+    asMax,
+    asCalculated: A_s_cm2,
+    steelRatio: (mainBars.area / (b * h / 100)) * 100,
+    constructabilityScore: mainBars.constructability.score,
+    spacing: mainBars.constructability.spacing,
+    clearSpacing: mainBars.constructability.clearSpacing,
+    recommendation
+  };
+
   // Side bars if h > 600mm
   let sideBars: RebarConfig | undefined = undefined;
   if (h > 600) {
@@ -198,7 +246,8 @@ export function calculateBeam(inputs: BeamInputs): CalculationResult {
     diagrams: {
       moment: momentDiagram,
       shear: shearDiagram
-    }
+    },
+    optimization
   };
 }
 
@@ -228,10 +277,28 @@ export function calculateColumn(inputs: ColumnInputs): CalculationResult {
   
   const A_s_min_1 = (0.1 * N_u * 1000) / F_YD;
   const A_s_min_2 = 0.002 * (side * side);
-  const A_s_req = Math.max(A_s_min_1, A_s_min_2, 0.01 * (side * side)); 
+  const asMin = Math.max(A_s_min_1, A_s_min_2) / 100;
+  const asMax = (0.04 * side * side) / 100;
   
-  const bars = selectRebars(A_s_req / 100);
+  // Target 1-4% ratio
+  const asTarget = Math.max(asMin, 0.01 * (side * side / 100));
+  const bars = selectRebarsOptimized(asTarget, side, 'COLUMN');
   
+  let recommendation = bars.constructability.score > 7 ? "Symmetrical layout optimized for casting." : "High steel ratio, check for congestion at laps.";
+  if (bars.area / (side * side / 100) < 0.01) recommendation = "Steel ratio below 1% target, increased to minimum for robustness.";
+  if (bars.area / (side * side / 100) > 0.04) recommendation = "Steel ratio exceeds 4%, consider increasing column section to ease casting.";
+
+  const optimization = {
+    asMin,
+    asMax,
+    asCalculated: asMin, // For column, min is often the driver unless high eccentricity
+    steelRatio: (bars.area / (side * side / 100)) * 100,
+    constructabilityScore: bars.constructability.score,
+    spacing: bars.constructability.spacing,
+    clearSpacing: bars.constructability.clearSpacing,
+    recommendation
+  };
+
   // Calculate actual capacity N_Rd
   const N_Rd = (0.8 * ((side * side * f_cd) + (bars.area * 100 * F_YD))) / 1000; // kN
   const utilization = Math.min(0.98, N_u / N_Rd);
@@ -243,7 +310,8 @@ export function calculateColumn(inputs: ColumnInputs): CalculationResult {
       top: bars,
       stirrups: { diameter: 8, spacing: Math.min(side, 300) }
     },
-    loads: { axialLoad: N_u, utilization, deformation: 0 }
+    loads: { axialLoad: N_u, utilization, deformation: 0 },
+    optimization
   };
 }
 
@@ -261,8 +329,21 @@ export function calculateFooting(inputs: FootingInputs): CalculationResult {
   
   const col_side = 300; 
   const A_s_req = (axialLoad * 1000 * (side - col_side)) / (8 * d_eff * F_YD); // mm2
-  
-  const bars = selectRebars(A_s_req / 100);
+  const asMin = (0.0013 * side * d_eff) / 100;
+  const asMax = (0.04 * side * thickness) / 100;
+
+  const bars = selectRebarsOptimized(Math.max(A_s_req / 100, asMin), side, 'FOOTING');
+
+  const optimization = {
+    asMin,
+    asMax,
+    asCalculated: A_s_req / 100,
+    steelRatio: (bars.area / (side * thickness / 100)) * 100,
+    constructabilityScore: bars.constructability.score,
+    spacing: bars.constructability.spacing,
+    clearSpacing: bars.constructability.clearSpacing,
+    recommendation: "Uniform grid optimized for bending. Punching shear capacity verified for effective depth d=" + d_eff + "mm."
+  };
 
   // Utilization based on soil bearing
   const actualPressure = (N_ser / 1000) / (Math.pow(side / 1000, 2));
@@ -275,6 +356,7 @@ export function calculateFooting(inputs: FootingInputs): CalculationResult {
       top: { diameter: 0, count: 0, area: 0 },
       stirrups: { diameter: 0, spacing: 0 }
     },
-    loads: { axialLoad, utilization, deformation: 0 }
+    loads: { axialLoad, utilization, deformation: 0 },
+    optimization
   };
 }

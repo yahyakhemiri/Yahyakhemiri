@@ -17,6 +17,17 @@ export interface StirrupZone {
 
 export type Language = 'en' | 'ar';
 
+export interface OptimizationMetrics {
+  asMin: number; // cm2
+  asMax: number; // cm2
+  asCalculated: number; // cm2
+  steelRatio: number; // %
+  constructabilityScore: number; // 1-10
+  spacing: number; // mm
+  clearSpacing: number; // mm
+  recommendation: string;
+}
+
 export interface CalculationResult {
   dimensions: {
     width: number; // mm
@@ -45,6 +56,7 @@ export interface CalculationResult {
     moment: { x: number; y: number }[];
     shear: { x: number; y: number }[];
   };
+  optimization?: OptimizationMetrics;
 }
 
 export interface BeamInputs {
