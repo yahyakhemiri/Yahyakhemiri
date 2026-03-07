@@ -1,0 +1,5 @@
+{
+  "name": "StructEasy",
+  "description": "Professional structural engineering calculator for beams, columns, and footings based on Eurocode 2 and BAEL standards with detailed SVG detailing.",
+  "requestFramePermissions": []
+}
