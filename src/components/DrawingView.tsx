@@ -307,17 +307,28 @@ export const DrawingView: React.FC<DrawingViewProps> = ({ type, result, lang }) 
         {/* Dimensions */}
         {renderDimension(lOffsetX, lOffsetY, lOffsetX + drawW, lOffsetY, `L = ${length} mm`, 'h', 30)}
 
-        {/* Top Bars */}
-        <line x1={lOffsetX + cover} y1={lOffsetY + cover} x2={lOffsetX + drawW - cover} y2={lOffsetY + cover} stroke={topBarColor} strokeWidth={result.reinforcement.top.count > 0 ? 3 : 1} />
+        {/* Straight Top Bars */}
+        <line x1={lOffsetX - 10} y1={lOffsetY + cover} x2={lOffsetX + drawW + 10} y2={lOffsetY + cover} stroke={topBarColor} strokeWidth={result.reinforcement.top.count > 0 ? 2 : 1} />
         
-        {/* Bottom Bars */}
-        <line x1={lOffsetX + cover} y1={lOffsetY + drawH - cover} x2={lOffsetX + drawW - cover} y2={lOffsetY + drawH - cover} stroke={bottomBarColor} strokeWidth={result.reinforcement.bottom.count > 0 ? 3 : 1} />
+        {/* Straight Bottom Bars */}
+        <line x1={lOffsetX - 10} y1={lOffsetY + drawH - cover} x2={lOffsetX + drawW + 10} y2={lOffsetY + drawH - cover} stroke={bottomBarColor} strokeWidth={result.reinforcement.bottom.count > 0 ? 2 : 1} />
+        
+        {/* Bent-up (Cranked) Bars */}
+        <path 
+          d={`M ${lOffsetX - 10} ${lOffsetY + cover + 3} 
+              L ${lOffsetX + drawW * 0.15} ${lOffsetY + cover + 3} 
+              L ${lOffsetX + drawW * 0.15 + (drawH - 2*cover)} ${lOffsetY + drawH - cover - 3} 
+              L ${lOffsetX + drawW * 0.85 - (drawH - 2*cover)} ${lOffsetY + drawH - cover - 3} 
+              L ${lOffsetX + drawW * 0.85} ${lOffsetY + cover + 3} 
+              L ${lOffsetX + drawW + 10} ${lOffsetY + cover + 3}`}
+          fill="none" 
+          stroke={bottomBarColor} 
+          strokeWidth="2" 
+        />
         
         {/* Curtailment Markers */}
         {!result.reinforcement.stirrups.distribution?.length || result.reinforcement.stirrups.distribution.length === 3 ? (
           <>
-            <line x1={lOffsetX + drawW * 0.15} y1={lOffsetY + drawH - cover - 5} x2={lOffsetX + drawW * 0.15} y2={lOffsetY + drawH - cover + 5} stroke={bottomBarColor} strokeWidth="1" />
-            <line x1={lOffsetX + drawW * 0.85} y1={lOffsetY + drawH - cover - 5} x2={lOffsetX + drawW * 0.85} y2={lOffsetY + drawH - cover + 5} stroke={bottomBarColor} strokeWidth="1" />
             <text x={lOffsetX + drawW * 0.15} y={lOffsetY + drawH - cover + 15} textAnchor="middle" fill={bottomBarColor} fontSize="8" fontWeight="bold">0.15L</text>
             <text x={lOffsetX + drawW * 0.85} y={lOffsetY + drawH - cover + 15} textAnchor="middle" fill={bottomBarColor} fontSize="8" fontWeight="bold">0.15L</text>
           </>
@@ -334,14 +345,11 @@ export const DrawingView: React.FC<DrawingViewProps> = ({ type, result, lang }) 
             const x = lOffsetX + (zoneStart + i * zone.spacing) * lScale;
             if (x > lOffsetX + drawW) return null;
             return (
-              <line 
-                key={`stirrup-${zIdx}-${i}`} 
-                x1={x} y1={lOffsetY + cover} 
-                x2={x} y2={lOffsetY + drawH - cover} 
-                stroke={stirrupColor} 
-                strokeWidth="1" 
-                opacity={0.3 + (0.7 * (100 / zone.spacing))} 
-              />
+              <g key={`stirrup-${zIdx}-${i}`} opacity={0.3 + (0.7 * (100 / zone.spacing))}>
+                <line x1={x} y1={lOffsetY + cover} x2={x} y2={lOffsetY + drawH - cover} stroke={stirrupColor} strokeWidth="1.5" />
+                <line x1={x - 2} y1={lOffsetY + cover} x2={x + 2} y2={lOffsetY + cover} stroke={stirrupColor} strokeWidth="1.5" />
+                <line x1={x - 2} y1={lOffsetY + drawH - cover} x2={x + 2} y2={lOffsetY + drawH - cover} stroke={stirrupColor} strokeWidth="1.5" />
+              </g>
             );
           });
         })}

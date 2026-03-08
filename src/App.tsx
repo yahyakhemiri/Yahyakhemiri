@@ -214,10 +214,41 @@ export default function App() {
       pdf.setTextColor(150);
       pdf.text('Note: Drawings are rendered at 1:50 scale relative to the physical dimensions of structural elements.', 10, pdfHeight - 10);
       
-      pdf.save(`StructEasy_${activeTab}_Report_1_50.pdf`);
+      // Force download using a Blob and anchor tag for better mobile support
+      const pdfBlob = pdf.output('blob');
+      const url = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `StructEasy_${activeTab}_Report_1_50.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
     } finally {
       element.style.cssText = originalStyle;
       element.removeChild(scaleIndicator);
+    }
+  };
+
+  const downloadAppHTML = async () => {
+    try {
+      const response = await fetch('/StructEasy.html');
+      if (!response.ok) throw new Error('Failed to fetch HTML');
+      const htmlContent = await response.text();
+      
+      const blob = new Blob([htmlContent], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'StructEasy_App.html';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error downloading HTML:', error);
+      alert('Failed to download the application. Please try again.');
     }
   };
 
@@ -404,13 +435,20 @@ export default function App() {
               )}
 
               {/* Export Button at the end */}
-              <div className="pt-8 flex justify-center no-print">
+              <div className="pt-8 flex justify-center gap-4 no-print">
                 <button 
                   onClick={exportPDF}
                   className="flex items-center gap-3 px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl transition-all shadow-xl shadow-emerald-900/20 font-bold group"
                 >
                   <Download className="w-5 h-5 group-hover:bounce" />
-                  <span>{t.export} (PDF)</span>
+                  <span>{t.export}</span>
+                </button>
+                <button 
+                  onClick={downloadAppHTML}
+                  className="flex items-center gap-3 px-8 py-4 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 rounded-2xl transition-all shadow-xl shadow-emerald-900/10 font-bold group"
+                >
+                  <Download className="w-5 h-5 group-hover:bounce" />
+                  <span>{lang === 'ar' ? 'تحميل التطبيق (HTML)' : 'Download App (HTML)'}</span>
                 </button>
               </div>
             </section>
